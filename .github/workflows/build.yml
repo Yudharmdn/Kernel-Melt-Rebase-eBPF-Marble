@@ -103,6 +103,7 @@ jobs:
           ccache \
           zstd \
           unzip \
+          p7zip-full \
           gcc-aarch64-linux-gnu
 
       - name: Clone Kernel Source
@@ -408,9 +409,10 @@ jobs:
           fi
 
           ZIP_NAME="${ZIP_NAME}_$(date -u +"%Y%m%d")"
-          git clone https://github.com/xxRDr/AnyKernel3.git
-          
-          cp ${SOC}/out/arch/arm64/boot/Image AnyKernel3/Image
+          git clone --depth=1 -b Anykernel3 https://github.com/Guxin12/android_kernel_xiaomi_marble.git AnyKernel3
+
+          # This AnyKernel3 fork expects a 7z-compressed Image, not a raw one.
+          7z a AnyKernel3/Image.7z ${SOC}/out/arch/arm64/boot/Image
           cp ${SOC}/out/arch/arm64/boot/Image ./Image
           cd AnyKernel3
 
@@ -486,5 +488,6 @@ jobs:
 
            ---
           " "${ASSETS[@]}"
+
 
           
