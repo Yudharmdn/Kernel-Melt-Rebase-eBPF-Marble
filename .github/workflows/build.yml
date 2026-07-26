@@ -411,8 +411,9 @@ jobs:
           ZIP_NAME="${ZIP_NAME}_$(date -u +"%Y%m%d")"
           git clone --depth=1 -b Anykernel3 https://github.com/Guxin12/android_kernel_xiaomi_marble.git AnyKernel3
 
-          # This AnyKernel3 fork expects a 7z-compressed Image, not a raw one.
-          7z a AnyKernel3/Image.7z ${SOC}/out/arch/arm64/boot/Image
+          # cd into the boot dir first so 7z stores just "Image" inside the
+          # archive, not the full marble/out/arch/arm64/boot/Image path.
+          (cd ${SOC}/out/arch/arm64/boot && 7z a "${GITHUB_WORKSPACE}/AnyKernel3/Image.7z" Image)
           cp ${SOC}/out/arch/arm64/boot/Image ./Image
           cd AnyKernel3
 
