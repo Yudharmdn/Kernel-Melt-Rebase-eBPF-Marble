@@ -371,6 +371,7 @@ jobs:
           # ---- Android NDK r27d (eBPF-Source/Makefile's default NDK toolchain) ----
           wget -q https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
           unzip -q android-ndk-r27d-linux.zip
+          rm -f android-ndk-r27d-linux.zip
 
           # ---- Fetch only the eBPF-Source subfolder from Re-Kernel ----
           git clone --depth=1 --filter=blob:none --sparse \
@@ -415,13 +416,18 @@ jobs:
 
           zip -r9 ../"${ZIP_NAME}.zip" * -x .git
 
+          # Persist the exact zip filename so the release step doesn't have
+          # to guess with `ls *.zip` (which breaks if any other .zip file,
+          # e.g. the NDK download in the eBPF step, ends up in the workspace).
+          echo "ZIP_NAME=${ZIP_NAME}.zip" >> $GITHUB_ENV
+
       - name: Create GitHub Release
         run: |
           BUILD_TIME=$(date -u +"%Y%m%d_%H%M")
           REL_NAME="${KERNEL_NAME}-${BUILD_TIME}"
           echo "REL_NAME=${REL_NAME}" >> $GITHUB_ENV
           cd ${GITHUB_WORKSPACE}
-          ZIP_FILE=$(ls *.zip)
+          ZIP_FILE="${ZIP_NAME}"
 
           ASSETS=("${ZIP_FILE}")
           if [[ "${{ inputs.rekernel_ebpf }}" == true ]]; then
