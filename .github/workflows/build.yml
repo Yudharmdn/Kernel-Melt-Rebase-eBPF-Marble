@@ -409,12 +409,22 @@ jobs:
           fi
 
           ZIP_NAME="${ZIP_NAME}_$(date -u +"%Y%m%d")"
-          git clone --depth=1 -b Anykernel3 https://github.com/Guxin12/android_kernel_xiaomi_marble.git AnyKernel3
+          git clone --depth=1 -b Anykernel3 https://github.com/yudharn/android_kernel_xiaomi_marble.git AnyKernel3
 
-          # cd into the boot dir first so 7z stores just "Image" inside the
-          # archive, not the full marble/out/arch/arm64/boot/Image path.
+          # This fork's anykernel.sh expects a 7z-compressed Image (unpacked
+          # on-device via its own bundled 7za), so compress it into that.
+          # cd into the boot dir first so the archive stores just "Image",
+          # not the full marble/out/arch/arm64/boot/Image path.
           (cd ${SOC}/out/arch/arm64/boot && 7z a "${GITHUB_WORKSPACE}/AnyKernel3/Image.7z" Image)
           cp ${SOC}/out/arch/arm64/boot/Image ./Image
+
+          # anykernel.sh ships with SHA1_STOCK="0" (an unfilled placeholder).
+          # Its post-unpack check compares a real sha1 against that literal
+          # "0", which can never match, so every flash aborts claiming the
+          # kernel image is corrupted. Inject this build's real sha1 so the
+          # check is actually meaningful instead of always failing.
+          IMAGE_SHA1=$(sha1sum ${SOC}/out/arch/arm64/boot/Image | awk '{print $1}')
+          sed -i "s/^SHA1_STOCK=\"0\"/SHA1_STOCK=\"${IMAGE_SHA1}\"/" AnyKernel3/anykernel.sh
           cd AnyKernel3
 
           zip -r9 ../"${ZIP_NAME}.zip" * -x .git
