@@ -42,6 +42,12 @@ on:
         type: boolean
         default: false
 
+      susfs_commit:
+        description: "Custom susfs4ksu commit hash (optional, only used if susfs above is enabled). Leave empty to use the latest commit on gki-android12-5.10."
+        required: false
+        type: string
+        default: ""
+
       BBG:
         description: "Add BBG support"
         required: true
@@ -263,25 +269,38 @@ jobs:
           fi
 
           if [[ "${{ inputs.susfs }}" == true ]]; then
-            # Cloning by branch name (no tag/commit pin) always checks out the
-            # branch tip, i.e. the latest commit, at the time the job runs.
-            # --depth=1 just makes that shallow/fast; we still capture the SHA
-            # so the exact SUSFS commit used is visible in logs/release notes.
-            git clone --depth=1 -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-            cd susfs
-            SUSFS_COMMIT=$(git rev-parse --short HEAD)
-            echo "SUSFS_COMMIT=${SUSFS_COMMIT}" >> $GITHUB_ENV
-            # susfs4ksu is hosted on GitLab, whose commit path is /-/commit/<sha>
-            # (GitHub's is /commit/<sha> without the /-) — different host, different path.
-            SUSFS_COMMIT_URL="https://gitlab.com/simonpunk/susfs4ksu/-/commit/${SUSFS_COMMIT}"
-            echo "SUSFS_COMMIT_URL=${SUSFS_COMMIT_URL}" >> $GITHUB_ENV
-            echo "==> SUSFS: using latest commit ${SUSFS_COMMIT} on branch gki-android12-5.10 (${SUSFS_COMMIT_URL})"
+            if [[ -n "${{ inputs.susfs_commit }}" ]]; then
+              # A specific commit was requested: a shallow clone of the branch
+              # tip won't necessarily contain it, so clone the full branch
+              # history and check out the requested commit explicitly.
+              git clone -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+              cd susfs
+              git checkout "${{ inputs.susfs_commit }}"
+              SUSFS_COMMIT=$(git rev-parse --short HEAD)
+              echo "SUSFS_COMMIT=${SUSFS_COMMIT}" >> $GITHUB_ENV
+              SUSFS_COMMIT_URL="https://gitlab.com/simonpunk/susfs4ksu/-/commit/${SUSFS_COMMIT}"
+              echo "SUSFS_COMMIT_URL=${SUSFS_COMMIT_URL}" >> $GITHUB_ENV
+              echo "==> SUSFS: using custom commit ${SUSFS_COMMIT} on branch gki-android12-5.10 (${SUSFS_COMMIT_URL})"
+            else
+              # Cloning by branch name (no tag/commit pin) always checks out the
+              # branch tip, i.e. the latest commit, at the time the job runs.
+              # --depth=1 just makes that shallow/fast; we still capture the SHA
+              # so the exact SUSFS commit used is visible in logs/release notes.
+              git clone --depth=1 -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+              cd susfs
+              SUSFS_COMMIT=$(git rev-parse --short HEAD)
+              echo "SUSFS_COMMIT=${SUSFS_COMMIT}" >> $GITHUB_ENV
+              # susfs4ksu is hosted on GitLab, whose commit path is /-/commit/<sha>
+              # (GitHub's is /commit/<sha> without the /-) — different host, different path.
+              SUSFS_COMMIT_URL="https://gitlab.com/simonpunk/susfs4ksu/-/commit/${SUSFS_COMMIT}"
+              echo "SUSFS_COMMIT_URL=${SUSFS_COMMIT_URL}" >> $GITHUB_ENV
+              echo "==> SUSFS: using latest commit ${SUSFS_COMMIT} on branch gki-android12-5.10 (${SUSFS_COMMIT_URL})"
+            fi
             cp ./kernel_patches/50_add_susfs_in_gki-android12-5.10.patch ..
             cp ./kernel_patches/fs/* ../fs/
             cp ./kernel_patches/include/linux/* ../include/linux/
             cd ..
-            patch -p1 --fuzz=0 -v < 50_add_susfs_in_gki-android12-5.10.patch 2>&1 | tee patch.log
-            find . -name "*.rej" -print -exec cat {} \;
+            patch -p1 < 50_add_susfs_in_gki-android12-5.10.patch
             echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/marble_defconfig
             echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/marble_defconfig
             echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> arch/arm64/configs/marble_defconfig
@@ -504,6 +523,7 @@ jobs:
 
            ---
           " "${ASSETS[@]}"
+
 
 
           
