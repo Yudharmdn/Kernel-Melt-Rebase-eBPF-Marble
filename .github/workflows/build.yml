@@ -280,7 +280,7 @@ jobs:
             cp ./kernel_patches/fs/* ../fs/
             cp ./kernel_patches/include/linux/* ../include/linux/
             cd ..
-            patch -p1 < 50_add_susfs_in_gki-android12-5.10.patch
+            patch -p1 --fuzz=0 -v < 50_add_susfs_in_gki-android12-5.10.patch 2>&1 | tee patch.log
             find . -name "*.rej" -print -exec cat {} \;
             echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/marble_defconfig
             echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/marble_defconfig
