@@ -43,7 +43,7 @@ on:
         default: false
 
       susfs_commit:
-        description: "Custom susfs4ksu commit hash (optional, only used if susfs above is enabled). Leave empty to use the latest commit on gki-android12-5.10."
+        description: "Custom susfs4ksu commit hash (86bb893e9a103b97d17045306f35eb239a623f2a). Leave empty to use the latest commit on gki-android12-5.10."
         required: false
         type: string
         default: ""
