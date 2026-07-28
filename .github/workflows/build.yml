@@ -15,6 +15,12 @@ on:
         type: string
         default: "melt-rebase"
 
+      clang_url:
+        description: "Clang/LLVM toolchain download URL (.tar.xz). Leave default to use the official LLVM 22.1.8 release."
+        required: true
+        type: string
+        default: "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-X64.tar.xz"
+
       ksu_type:
         description: "KernelSU Version"
         required: true
@@ -133,13 +139,16 @@ jobs:
           echo "==> Kernel source: using latest commit ${KERNEL_COMMIT} on branch ${{ inputs.kernel_branch }} (${KERNEL_COMMIT_URL})"
           cd ..
 
-      - name: Download LLVM 22.1.8
+      - name: Download Clang/LLVM Toolchain
         run: |
           mkdir -p toolchains
           cd toolchains
-          wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-X64.tar.xz
-          mkdir llvm-22.1.8
-          tar -xf LLVM-22.1.8-Linux-X64.tar.xz -C llvm-22.1.8 --strip-components=1
+          # Support any .tar.xz toolchain URL, not just the default LLVM 22.1.8
+          # release, so a custom prebuilt clang can be dropped in via input.
+          CLANG_ARCHIVE=$(basename "${{ inputs.clang_url }}")
+          wget -q "${{ inputs.clang_url }}" -O "${CLANG_ARCHIVE}"
+          mkdir llvm-toolchain
+          tar -xf "${CLANG_ARCHIVE}" -C llvm-toolchain --strip-components=1
 
       # ---- ccache-ECS (cctv18 style layered ccache) ----
       - name: Configure ccache dir and key
@@ -168,7 +177,7 @@ jobs:
 
       - name: Compile Kernel
         run: |
-          CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/llvm-22.1.8/bin"
+          CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/llvm-toolchain/bin"
           export PATH="${CLANG_ROOT}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
@@ -186,6 +195,12 @@ jobs:
           export STRIP="${CLANG_ROOT}/llvm-strip"
           export KBUILD_BUILD_USER="Rebuild By"
           export KBUILD_BUILD_HOST="Yudharn"
+
+          # Capture the toolchain's real reported version (not just the URL),
+          # since inputs.clang_url may point at a different clang than default.
+          CLANG_VERSION=$("${CC}" --version | head -n1)
+          echo "CLANG_VERSION=${CLANG_VERSION}" >> $GITHUB_ENV
+          echo "==> Using Clang/LLVM toolchain: ${CLANG_VERSION} (from ${{ inputs.clang_url }})"
 
           # ccache-ECS tuning: normalize paths/timestamps so cache hits across runs
           export CCACHE_COMPILERCHECK="none"
@@ -519,10 +534,11 @@ jobs:
            | ⚙️ Re-Kernel (Netlink) | ${rekernel_netlink_checkbox}
            | ⚙️ Re-Kernel (eBPF) | ${rekernel_ebpf_checkbox}
            | 🧩 eBPF | Enabled (BTF/CO-RE, kprobe+uprobe, cgroup+tc hooks) |
-           | 🔨 Compiler | LLVM/Clang 22.1.8 Official (llvm-project release) |
+           | 🔨 Compiler | ${CLANG_VERSION} |
 
            ---
           " "${ASSETS[@]}"
+
 
 
 
