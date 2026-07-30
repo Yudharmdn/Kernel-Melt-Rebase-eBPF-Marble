@@ -523,10 +523,10 @@ jobs:
            | 📱 Device | POCO F5 (marble) • Redmi Note 12 Turbo (marble) |
            | 🟠 ROM Support | HyperOS 3 A16 Only |
            | 🖥️ Kernel Name | ${KERNEL_NAME}
-           | 🧬 Kernel Base | android12-5.10 |
+           | 🧰 Kernel Base | android12-5.10 |
            | 🛠️ Build Scope | ZIP |
            | 📦 Source | ${{ inputs.kernel_source }} |
-           | ⚔️ Kernel branch | ${{ inputs.kernel_branch }}@[${KERNEL_COMMIT}](${KERNEL_COMMIT_URL})
+           | 🔗 Kernel branch | ${{ inputs.kernel_branch }}@[${KERNEL_COMMIT}](${KERNEL_COMMIT_URL})
            | 💻 KSU Manager type | ${{ inputs.ksu_type }} 
            | 🏷️ KSU Manager version | ${ksu_manager_version} 
            | 🔧 SuSFS Version | ${susfs_checkbox} 
