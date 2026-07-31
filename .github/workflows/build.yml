@@ -6,8 +6,11 @@ on:
       kernel_source:
         description: "Kernel source repo URL for marble (Melt Kernel). Paste any git URL here to override the default."
         required: true
-        type: string
+        type: choice
         default: "https://github.com/Pzqqt/android_kernel_xiaomi_marble"
+        options :
+          - https://github.com/Pzqqt/android_kernel_xiaomi_marble
+          - https://github.com/Yudharmdn/android_kernel_xiaomi_marble
 
       kernel_branch:
         description: "Branch on kernel_source above"
