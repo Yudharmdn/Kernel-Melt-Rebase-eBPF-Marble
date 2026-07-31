@@ -8,7 +8,7 @@ on:
         required: true
         type: choice
         default: "https://github.com/Pzqqt/android_kernel_xiaomi_marble"
-        options :
+        options:
           - https://github.com/Pzqqt/android_kernel_xiaomi_marble
           - https://github.com/Yudharmdn/android_kernel_xiaomi_marble
           - https://github.com/Guxin12/android_kernel_xiaomi_marble
@@ -16,8 +16,12 @@ on:
       kernel_branch:
         description: "Branch on kernel_source above"
         required: true
-        type: string
+        type: choice
         default: "melt-rebase"
+        options:
+          - melt-rebase
+          - melt-Guxin12-A
+          - bouquet_ci
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz). Leave default to use the official LLVM 22.1.8 release."
