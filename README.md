@@ -33,7 +33,7 @@
  
  **WildKernels** — reference CI and release patterns
  
- **Sakion-Team**- Re-Kernel Network + eBPF
+ **Sakion-Team** — Re-Kernel Network + eBPF
  
  Xiaomi/MIUI kernel source maintainers
 
