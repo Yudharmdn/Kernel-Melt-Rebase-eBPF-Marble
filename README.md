@@ -34,6 +34,8 @@
  **WildKernels** — reference CI and release patterns
  
  **Sakion-Team** — Re-Kernel Network + eBPF
+
+ **vc-teahouse** — Baseband-guard
  
  Xiaomi/MIUI kernel source maintainers
 
