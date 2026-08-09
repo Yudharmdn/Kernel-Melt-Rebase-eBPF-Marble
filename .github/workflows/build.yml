@@ -26,11 +26,8 @@ on:
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz). Leave default to use the official LLVM 22.1.8 release."
         required: true
-        type: choice
+        type: string
         default: "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-X64.tar.xz"
-        options:
-          - https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-X64.tar.xz
-          - https://mirrors.edge.kernel.org/pub/tools/llvm/files/llvm-23.1.0-rc2-x86_64.tar.xz
 
       ksu_type:
         description: "KernelSU Version"
