@@ -80,7 +80,7 @@ on:
         default: false
 
       ccache_update:
-        description: "Refresh ccache (overwrite the repo cache with this build's ccache; enable when u changed configs/source or need a clean cache)"
+        description: "Refresh ccache"
         required: true
         type: boolean
         default: false
