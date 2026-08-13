@@ -371,18 +371,12 @@ jobs:
           fi
 
           if [[ "${{ inputs.droidspaces }}" == true ]]; then
-            # marble ships the same android12-5.10 kernel base as ingres ->
-            # same DroidSpaces "5.10-or-lower" patch path applies.
             curl -Lo patch-for-below-6.12.patch https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/refs/heads/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch
             patch -p1 < patch-for-below-6.12.patch
 
             curl -Lo patch-for-5.10-or-lower.patch https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/refs/heads/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch
             patch -p1 < patch-for-5.10-or-lower.patch
 
-            # marble_defconfig is a single flat defconfig (marble's make step
-            # doesn't merge vendor/*.config fragments like ingres's GKI build
-            # does), so append the DroidSpaces symbols straight onto it
-            # instead of passing a separate fragment on the make command line.
             cat "${GITHUB_WORKSPACE}/configs/droidspaces-gki.config" >> arch/arm64/configs/marble_defconfig
           fi
 
