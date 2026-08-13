@@ -7,7 +7,7 @@ on:
         description: "Kernel source repo URL for marble (Melt Kernel). Paste any git URL here to override the default."
         required: true
         type: choice
-        default: "https://github.com/Pzqqt/android_kernel_xiaomi_marble"
+        default: "https://github.com/Yudharmdn/android_kernel_xiaomi_marble"
         options:
           - https://github.com/Pzqqt/android_kernel_xiaomi_marble
           - https://github.com/Guxin12/android_kernel_xiaomi_marble
