@@ -22,7 +22,6 @@ on:
         options:
           - melt-rebase
           - melt-Guxin12-A
-          - bouquet_ci
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz). Leave default to use the official LLVM 22.1.8 release."
