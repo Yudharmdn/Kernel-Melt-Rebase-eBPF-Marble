@@ -12,7 +12,7 @@ on:
           - https://github.com/Pzqqt/android_kernel_xiaomi_marble
           - https://github.com/Guxin12/android_kernel_xiaomi_marble
           - https://github.com/yudharn/Pzqqt-Melt-Rebase
-          - https://github.com/yudharn/android_kernel_xiaomi_marble
+          - https://github.com/Yudharmdn/Guxin12-Melt-Rebase
 
       kernel_branch:
         description: "Branch on kernel_source above"
