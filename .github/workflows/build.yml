@@ -11,7 +11,8 @@ on:
         options:
           - https://github.com/Pzqqt/android_kernel_xiaomi_marble
           - https://github.com/Guxin12/android_kernel_xiaomi_marble
-          - https://github.com/Yudharmdn/android_kernel_xiaomi_marble          
+          - https://github.com/Yudharmdn/android_kernel_xiaomi_marble
+          - https://github.com/yudharn/android_kernel_xiaomi_marble
 
       kernel_branch:
         description: "Branch on kernel_source above"
