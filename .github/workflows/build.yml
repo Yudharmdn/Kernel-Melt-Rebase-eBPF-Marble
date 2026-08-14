@@ -173,7 +173,14 @@ jobs:
           echo "Deleting old repo ccache to force a fresh save..."
           gh cache delete "${CCACHE_REAL_KEY}-${{ runner.os }}-${{ inputs.kernel_branch }}" -R ${{ github.repository }} || echo "No old ccache to delete"
 
+      # Skipped entirely when ccache_update=true. The restore-keys below are
+      # prefix matches with no branch in them, so even after the purge step
+      # above deletes THIS branch's exact key, an old cache saved under a
+      # different kernel_branch could still be pulled in as a fallback hit.
+      # Skipping restore is the only way to guarantee a truly empty ccache
+      # when a refresh is requested.
       - name: Restore ccache
+        if: ${{ !inputs.ccache_update }}
         uses: actions/cache/restore@v4
         id: ccache-restore
         with:
@@ -546,6 +553,7 @@ jobs:
 
            ---
           " "${ASSETS[@]}"
+
 
 
 
