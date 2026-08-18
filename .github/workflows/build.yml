@@ -13,7 +13,6 @@ on:
           - https://github.com/Guxin12/android_kernel_xiaomi_marble
           - https://github.com/yudharn/Pzqqt-Melt-Rebase
           - https://github.com/Yudharmdn/Guxin12-Melt-Rebase
-          - https://github.com/Steambot12/Templar-Kernel-GKI-5.10
 
       kernel_branch:
         description: "Branch on kernel_source above"
@@ -23,7 +22,6 @@ on:
         options:
           - melt-rebase
           - melt-Guxin12-A
-          - Templar-LinuxStable
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz). Leave default to use the official LLVM 22.1.8 release."
