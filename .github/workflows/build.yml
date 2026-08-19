@@ -21,6 +21,7 @@ on:
         default: "melt-rebase"
         options:
           - melt-rebase
+          - melt-rebase-4LazyGoogle
           - melt-Guxin12-A
 
       clang_url:
