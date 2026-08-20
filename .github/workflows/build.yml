@@ -9,8 +9,6 @@ on:
         type: choice
         default: "https://github.com/yudharn/Pzqqt-Melt-Rebase"
         options:
-          - https://github.com/Pzqqt/android_kernel_xiaomi_marble
-          - https://github.com/Guxin12/android_kernel_xiaomi_marble
           - https://github.com/yudharn/Pzqqt-Melt-Rebase
           - https://github.com/Yudharmdn/Guxin12-Melt-Rebase
 
@@ -21,8 +19,8 @@ on:
         default: "melt-rebase"
         options:
           - melt-rebase
-          - melt-rebase-4LazyGoogle
           - melt-Guxin12-A
+          - melt-rebase-4LazyGoogle
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz). Leave default to use the official LLVM 22.1.8 release."
