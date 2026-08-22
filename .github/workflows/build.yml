@@ -28,18 +28,35 @@ on:
         type: string
         default: "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-X64.tar.xz"
 
-      ksu_type:
-        description: "KernelSU Version"
+      manager_official_kernelsu:
+        description: "Build Official-KernelSU"
         required: true
-        type: choice
-        default: ReSukiSU
-        options:
-          - None
-          - Official-KernelSU
-          - KernelSU-Next
-          - KowSU
-          - ReSukiSU
-          - SukiSUUltra
+        type: boolean
+        default: true
+
+      manager_kernelsu_next:
+        description: "Build KernelSU-Next"
+        required: true
+        type: boolean
+        default: true
+
+      manager_kowsu:
+        description: "Build KowSU"
+        required: true
+        type: boolean
+        default: true
+
+      manager_resukisu:
+        description: "Build ReSukiSU"
+        required: true
+        type: boolean
+        default: true
+
+      manager_sukisu_ultra:
+        description: "Build SukiSUUltra"
+        required: true
+        type: boolean
+        default: true
 
       custom_name:
         description: "kernel"
@@ -86,7 +103,40 @@ on:
 
 
 jobs:
+  Determine_Matrix:
+    name: Determine which managers to build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Build matrix JSON from checked managers
+        id: set-matrix
+        run: |
+          MANAGERS=()
+          [[ "${{ inputs.manager_official_kernelsu }}" == true ]] && MANAGERS+=("Official-KernelSU")
+          [[ "${{ inputs.manager_kernelsu_next }}" == true ]] && MANAGERS+=("KernelSU-Next")
+          [[ "${{ inputs.manager_kowsu }}" == true ]] && MANAGERS+=("KowSU")
+          [[ "${{ inputs.manager_resukisu }}" == true ]] && MANAGERS+=("ReSukiSU")
+          [[ "${{ inputs.manager_sukisu_ultra }}" == true ]] && MANAGERS+=("SukiSUUltra")
+
+          if [[ ${#MANAGERS[@]} -eq 0 ]]; then
+            echo "::error::No manager checked — tick at least one manager_* checkbox before running this workflow."
+            exit 1
+          fi
+
+          MATRIX_JSON=$(printf '%s\n' "${MANAGERS[@]}" | jq -R . | jq -sc .)
+          echo "==> Managers selected for this run: ${MANAGERS[*]}"
+          echo "matrix=${MATRIX_JSON}" >> "$GITHUB_OUTPUT"
+
   Build_Kernel_Marble:
+    needs: Determine_Matrix
+    name: Build Kernel (${{ matrix.ksu_type }})
+    strategy:
+      fail-fast: false
+      matrix:
+        ksu_type: ${{ fromJSON(needs.Determine_Matrix.outputs.matrix) }}
     env:
         GH_TOKEN: ${{ github.token }}
         SOC: marble
@@ -170,22 +220,23 @@ jobs:
         continue-on-error: true
         run: |
           echo "Deleting old repo ccache to force a fresh save..."
-          gh cache delete "${CCACHE_REAL_KEY}-${{ runner.os }}-${{ inputs.kernel_branch }}" -R ${{ github.repository }} || echo "No old ccache to delete"
+          gh cache delete "${CCACHE_REAL_KEY}-${{ runner.os }}-${{ inputs.kernel_branch }}-${{ matrix.ksu_type }}" -R ${{ github.repository }} || echo "No old ccache to delete"
 
-      # Skipped entirely when ccache_update=true. The restore-keys below are
-      # prefix matches with no branch in them, so even after the purge step
-      # above deletes THIS branch's exact key, an old cache saved under a
-      # different kernel_branch could still be pulled in as a fallback hit.
-      # Skipping restore is the only way to guarantee a truly empty ccache
-      # when a refresh is requested.
+      # Skipped entirely when ccache_update=true. The restore-keys below fall
+      # back from most to least specific: same branch+manager exactly, then
+      # same branch regardless of manager, then same OS regardless of branch.
+      # This lets all 5 matrix legs reuse each other's shared object files on
+      # a cache miss, while each leg still saves under its own exact key below
+      # (see "Save ccache"), so parallel legs never race to write one key.
       - name: Restore ccache
         if: ${{ !inputs.ccache_update }}
         uses: actions/cache/restore@v4
         id: ccache-restore
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-${{ inputs.kernel_branch }}
+          key: ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-${{ inputs.kernel_branch }}-${{ matrix.ksu_type }}
           restore-keys: |
+            ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-${{ inputs.kernel_branch }}-
             ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-
             ${{ env.CCACHE_REAL_KEY }}-
 
@@ -231,7 +282,7 @@ jobs:
           if [[ -n "${{ inputs.custom_name }}" ]]; then
             KERNEL_NAME="${{ inputs.custom_name }}"
           else
-            KERNEL_NAME="${{ inputs.ksu_type }}"
+            KERNEL_NAME="${{ matrix.ksu_type }}"
           fi
 
           echo "KERNEL_NAME=${KERNEL_NAME}" >> $GITHUB_ENV
@@ -243,7 +294,7 @@ jobs:
           # name differs per fork, e.g. "KernelSU" vs "KernelSU-Next").
           KSU_DIRS_BEFORE=$(ls -d */ 2>/dev/null | sort || true)
 
-          case "${{ inputs.ksu_type }}" in
+          case "${{ matrix.ksu_type }}" in
 
             "None")
               ;;
@@ -274,7 +325,7 @@ jobs:
           esac
 
           # ---- Capture KSU Manager source version (for release notes) ----
-          if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
+          if [[ "${{ matrix.ksu_type }}" != "None" ]]; then
             KSU_DIRS_AFTER=$(ls -d */ 2>/dev/null | sort || true)
             # Whatever wasn't in the "before" snapshot is the dir setup.sh just cloned.
             KSU_DIR=$(comm -13 <(echo "$KSU_DIRS_BEFORE") <(echo "$KSU_DIRS_AFTER") | head -n1 | sed 's:/$::')
@@ -284,9 +335,9 @@ jobs:
               KSU_MANAGER_COMMIT=$(cd "$KSU_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "")
               KSU_MANAGER_REPO_URL=$(cd "$KSU_DIR" && git remote get-url origin 2>/dev/null | sed 's/\.git$//')
               KSU_MANAGER_COMMIT_URL="${KSU_MANAGER_REPO_URL}/commit/${KSU_MANAGER_COMMIT}"
-              echo "==> ${{ inputs.ksu_type }}: detected source dir '${KSU_DIR}', version ${KSU_MANAGER_VERSION} (${KSU_MANAGER_COMMIT}) - ${KSU_MANAGER_COMMIT_URL}"
+              echo "==> ${{ matrix.ksu_type }}: detected source dir '${KSU_DIR}', version ${KSU_MANAGER_VERSION} (${KSU_MANAGER_COMMIT}) - ${KSU_MANAGER_COMMIT_URL}"
             else
-              echo "==> Could not auto-detect the ${{ inputs.ksu_type }} source dir; KSU Manager version will show as unknown."
+              echo "==> Could not auto-detect the ${{ matrix.ksu_type }} source dir; KSU Manager version will show as unknown."
               KSU_MANAGER_VERSION="unknown"
               KSU_MANAGER_COMMIT=""
               KSU_MANAGER_COMMIT_URL=""
@@ -403,7 +454,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-${{ inputs.kernel_branch }}
+          key: ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-${{ inputs.kernel_branch }}-${{ matrix.ksu_type }}
 
       - name: Build Re-Kernel (eBPF)
         if: ${{ inputs.rekernel_ebpf }}
@@ -451,7 +502,7 @@ jobs:
 
       - name: Make AnyKernel3
         run: |
-          ZIP_NAME="${KERNEL_NAME}_${{ inputs.ksu_type }}"
+          ZIP_NAME="${KERNEL_NAME}_${{ matrix.ksu_type }}"
 
           if [[ "${{ inputs.susfs }}" == true ]]; then
             ZIP_NAME="${ZIP_NAME}_SuSFS"
@@ -490,7 +541,7 @@ jobs:
       - name: Create GitHub Release
         run: |
           BUILD_TIME=$(date -u +"%Y%m%d_%H%M")
-          REL_NAME="${KERNEL_NAME}-${BUILD_TIME}"
+          REL_NAME="${KERNEL_NAME}-${{ matrix.ksu_type }}-${BUILD_TIME}"
           echo "REL_NAME=${REL_NAME}" >> $GITHUB_ENV
           cd ${GITHUB_WORKSPACE}
           ZIP_FILE="${ZIP_NAME}"
@@ -524,7 +575,7 @@ jobs:
             rekernel_ebpf_checkbox="Unsupported"
           fi
 
-          if [[ "${{ inputs.ksu_type }}" != "None" && -n "${KSU_MANAGER_COMMIT}" ]]; then
+          if [[ "${{ matrix.ksu_type }}" != "None" && -n "${KSU_MANAGER_COMMIT}" ]]; then
             ksu_manager_version="${KSU_MANAGER_VERSION}@[${KSU_MANAGER_COMMIT}](${KSU_MANAGER_COMMIT_URL})"
           else
             ksu_manager_version="N/A"
@@ -541,7 +592,7 @@ jobs:
            | 🛠️ Build Scope | ZIP |
            | 📦 Source | ${{ inputs.kernel_source }} |
            | 🔗 Kernel branch | ${{ inputs.kernel_branch }}@[${KERNEL_COMMIT}](${KERNEL_COMMIT_URL})
-           | 💻 KSU Manager type | ${{ inputs.ksu_type }} 
+           | 💻 KSU Manager type | ${{ matrix.ksu_type }} 
            | 🏷️ KSU Manager version | ${ksu_manager_version} 
            | 🔧 SuSFS Version | ${susfs_checkbox} 
            | ⚙️ BBG Patch | ${bbg_checkbox} 
@@ -552,6 +603,7 @@ jobs:
 
            ---
           " "${ASSETS[@]}"
+
 
 
 
