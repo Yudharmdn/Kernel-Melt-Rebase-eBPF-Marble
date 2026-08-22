@@ -143,11 +143,11 @@ jobs:
         CCACHE_KEY: ccache-ecsv3-marble-sm7475
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       actions: write
       checks: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup SWAP
         uses: pierotofy/set-swap-space@master
@@ -538,17 +538,115 @@ jobs:
           # e.g. the NDK download in the eBPF step, ends up in the workspace).
           echo "ZIP_NAME=${ZIP_NAME}.zip" >> $GITHUB_ENV
 
-      - name: Create GitHub Release
+      - name: Write build metadata
         run: |
-          BUILD_TIME=$(date -u +"%Y%m%d_%H%M")
-          REL_NAME="${KERNEL_NAME}-${{ matrix.ksu_type }}-${BUILD_TIME}"
-          echo "REL_NAME=${REL_NAME}" >> $GITHUB_ENV
-          cd ${GITHUB_WORKSPACE}
-          ZIP_FILE="${ZIP_NAME}"
+          jq -n \
+            --arg ksu_type "${{ matrix.ksu_type }}" \
+            --arg kernel_name "${KERNEL_NAME}" \
+            --arg zip_name "${ZIP_NAME}" \
+            --arg ksu_manager_version "${KSU_MANAGER_VERSION:-unknown}" \
+            --arg ksu_manager_commit "${KSU_MANAGER_COMMIT:-}" \
+            --arg ksu_manager_commit_url "${KSU_MANAGER_COMMIT_URL:-}" \
+            --arg kernel_commit "${KERNEL_COMMIT}" \
+            --arg kernel_commit_url "${KERNEL_COMMIT_URL}" \
+            --arg clang_version "${CLANG_VERSION}" \
+            --arg susfs_commit "${SUSFS_COMMIT:-}" \
+            --arg susfs_commit_url "${SUSFS_COMMIT_URL:-}" \
+            '{ksu_type:$ksu_type,kernel_name:$kernel_name,zip_name:$zip_name,ksu_manager_version:$ksu_manager_version,ksu_manager_commit:$ksu_manager_commit,ksu_manager_commit_url:$ksu_manager_commit_url,kernel_commit:$kernel_commit,kernel_commit_url:$kernel_commit_url,clang_version:$clang_version,susfs_commit:$susfs_commit,susfs_commit_url:$susfs_commit_url}' \
+            > "${GITHUB_WORKSPACE}/metadata.json"
 
-          ASSETS=("${ZIP_FILE}")
-          if [[ "${{ inputs.rekernel_ebpf }}" == true ]]; then
-            ASSETS+=("rekernel-ebpf-out/rekernel.bpf.o" "rekernel-ebpf-out/rekerneld_aarch64")
+      # Each matrix leg uploads its own zip + metadata as a short-lived artifact.
+      # The separate Create_Release job below waits for every leg, downloads
+      # all of them, and bundles everything into ONE combined release — a
+      # matrix job can't call `gh release create` once for all legs itself,
+      # so aggregating afterwards in its own job is the only way to get one
+      # release with 5 zips instead of 5 separate releases.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.ksu_type }}
+          path: |
+            ${{ env.ZIP_NAME }}
+            metadata.json
+            rekernel-ebpf-out/rekernel.bpf.o
+            rekernel-ebpf-out/rekerneld_aarch64
+          if-no-files-found: ignore
+          retention-days: 1
+
+  Create_Release:
+    name: Create combined GitHub Release
+    needs: Build_Kernel_Marble
+    # Run even if one or two managers failed to build, as long as the run
+    # itself wasn't cancelled — so a partial success (e.g. 4 of 5 managers)
+    # still ends up in a release instead of no release at all.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: build-*
+
+      - name: Create combined release
+        run: |
+          set -e
+          mkdir -p artifacts
+          cd artifacts
+
+          ASSETS=()
+          NOTES_ROWS=""
+          EBPF_DONE=false
+          FIRST=true
+
+          for dir in build-*/; do
+            META="${dir}metadata.json"
+            [[ -f "$META" ]] || { echo "::warning::No metadata.json in ${dir}, skipping"; continue; }
+
+            KSU_TYPE=$(jq -r '.ksu_type' "$META")
+            ZIP_NAME=$(jq -r '.zip_name' "$META")
+            KSU_MANAGER_VERSION=$(jq -r '.ksu_manager_version' "$META")
+            KSU_MANAGER_COMMIT=$(jq -r '.ksu_manager_commit' "$META")
+            KSU_MANAGER_COMMIT_URL=$(jq -r '.ksu_manager_commit_url' "$META")
+
+            if $FIRST; then
+              KERNEL_NAME=$(jq -r '.kernel_name' "$META")
+              KERNEL_COMMIT=$(jq -r '.kernel_commit' "$META")
+              KERNEL_COMMIT_URL=$(jq -r '.kernel_commit_url' "$META")
+              CLANG_VERSION=$(jq -r '.clang_version' "$META")
+              SUSFS_COMMIT=$(jq -r '.susfs_commit' "$META")
+              SUSFS_COMMIT_URL=$(jq -r '.susfs_commit_url' "$META")
+              FIRST=false
+            fi
+
+            ASSETS+=("${dir}${ZIP_NAME}")
+
+            if [[ -n "$KSU_MANAGER_COMMIT" ]]; then
+              ksu_row_version="${KSU_MANAGER_VERSION}@[${KSU_MANAGER_COMMIT}](${KSU_MANAGER_COMMIT_URL})"
+            else
+              ksu_row_version="${KSU_MANAGER_VERSION}"
+            fi
+            NOTES_ROWS="${NOTES_ROWS}
+           | ${KSU_TYPE} | ${ksu_row_version} | ${ZIP_NAME} |"
+
+            # The eBPF daemon+prog don't depend on which KSU manager was used,
+            # so every leg that built them produces the same pair of files —
+            # attach them once (from the first leg that has them), not once
+            # per manager, since a release can't hold duplicate asset names.
+            if [[ "$EBPF_DONE" == false && -f "${dir}rekernel.bpf.o" ]]; then
+              ASSETS+=("${dir}rekernel.bpf.o" "${dir}rekerneld_aarch64")
+              EBPF_DONE=true
+            fi
+          done
+
+          if [[ ${#ASSETS[@]} -eq 0 ]]; then
+            echo "::error::No successful builds found in any matrix leg — skipping release creation."
+            exit 1
           fi
 
           if [[ "${{ inputs.susfs }}" == true ]]; then
@@ -575,11 +673,8 @@ jobs:
             rekernel_ebpf_checkbox="Unsupported"
           fi
 
-          if [[ "${{ matrix.ksu_type }}" != "None" && -n "${KSU_MANAGER_COMMIT}" ]]; then
-            ksu_manager_version="${KSU_MANAGER_VERSION}@[${KSU_MANAGER_COMMIT}](${KSU_MANAGER_COMMIT_URL})"
-          else
-            ksu_manager_version="N/A"
-          fi
+          BUILD_TIME=$(date -u +"%Y%m%d_%H%M")
+          REL_NAME="${KERNEL_NAME}-${BUILD_TIME}"
 
           gh release create "$REL_NAME" --title "$REL_NAME" --notes "# Kernel Melt Rebase for POCO F5 (marble)
 
@@ -592,8 +687,6 @@ jobs:
            | 🛠️ Build Scope | ZIP |
            | 📦 Source | ${{ inputs.kernel_source }} |
            | 🔗 Kernel branch | ${{ inputs.kernel_branch }}@[${KERNEL_COMMIT}](${KERNEL_COMMIT_URL})
-           | 💻 KSU Manager type | ${{ matrix.ksu_type }} 
-           | 🏷️ KSU Manager version | ${ksu_manager_version} 
            | 🔧 SuSFS Version | ${susfs_checkbox} 
            | ⚙️ BBG Patch | ${bbg_checkbox} 
            | ⚙️ Re-Kernel (Netlink) | ${rekernel_netlink_checkbox}
@@ -602,11 +695,12 @@ jobs:
            | 🔨 Compiler | ${CLANG_VERSION} |
 
            ---
+
+           ### 💻 KSU Managers in this build
+
+           | Manager | Version | Zip |
+           |:---|:---|:---|${NOTES_ROWS}
+
+           ---
           " "${ASSETS[@]}"
-
-
-
-
-
-
           
