@@ -96,7 +96,7 @@ on:
         default: false
 
       nomount:
-        description: "Add NoMount support"
+        description: "Add NoMount support (https://github.com/maxsteeel/nomount)"
         required: true
         type: boolean
         default: false
@@ -387,8 +387,27 @@ jobs:
             echo "NOMOUNT_COMMIT=${NOMOUNT_COMMIT}" >> $GITHUB_ENV
             NOMOUNT_COMMIT_URL="https://github.com/maxsteeel/nomount/commit/${NOMOUNT_COMMIT}"
             echo "NOMOUNT_COMMIT_URL=${NOMOUNT_COMMIT_URL}" >> $GITHUB_ENV
-            patch -p1 < nomount-src/kernel/nomount_5.10_kernel_integration.patch
-            cp nomount-src/kernel/src/* fs/
+
+            echo "==> NoMount repo layout (debug, in case upstream paths change):"
+            find nomount-src -maxdepth 3 2>/dev/null || true
+
+            NOMOUNT_PATCH=$(find nomount-src -iname "*5.10*.patch" 2>/dev/null | sort | head -n1)
+            if [[ -z "$NOMOUNT_PATCH" ]]; then
+              echo "::error::No 5.10 NoMount integration patch found in the cloned nomount repo — see the tree dump above for the actual layout and fix the path."
+              exit 1
+            fi
+            echo "==> Applying NoMount patch: ${NOMOUNT_PATCH}"
+            patch -p1 < "$NOMOUNT_PATCH"
+
+            NOMOUNT_C=$(find nomount-src -iname "nomount.c" 2>/dev/null | head -n1)
+            if [[ -z "$NOMOUNT_C" ]]; then
+              echo "::error::Could not locate nomount.c in the cloned nomount repo — see the tree dump above for the actual layout."
+              exit 1
+            fi
+            NOMOUNT_SRC_DIR=$(dirname "$NOMOUNT_C")
+            echo "==> Copying NoMount sources from ${NOMOUNT_SRC_DIR} to fs/"
+            cp "${NOMOUNT_SRC_DIR}"/* fs/
+
             echo "CONFIG_NOMOUNT=y" >> arch/arm64/configs/marble_defconfig
             echo "==> NoMount: using latest commit ${NOMOUNT_COMMIT} on branch master (${NOMOUNT_COMMIT_URL})"
           fi
