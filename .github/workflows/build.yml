@@ -95,6 +95,12 @@ on:
         type: boolean
         default: false
 
+      nomount:
+        description: "Add NoMount support"
+        required: true
+        type: boolean
+        default: false
+
       ccache_update:
         description: "Refresh ccache"
         required: true
@@ -143,11 +149,11 @@ jobs:
         CCACHE_KEY: ccache-ecsv3-marble-sm7475
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       actions: write
       checks: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup SWAP
         uses: pierotofy/set-swap-space@master
@@ -177,18 +183,10 @@ jobs:
 
       - name: Clone Kernel Source
         run: |
-          # this marble (SM7475) Melt Kernel
-          # Same reasoning as SUSFS below: cloning by branch name always
-          # checks out the branch tip at the time the job runs, so we
-          # capture the SHA to make the exact kernel commit used visible
-          # in logs/release notes.
           git clone --depth=1 -b ${{ inputs.kernel_branch }} ${{ inputs.kernel_source }} ${SOC}
           cd ${SOC}
           KERNEL_COMMIT=$(git rev-parse --short HEAD)
           echo "KERNEL_COMMIT=${KERNEL_COMMIT}" >> $GITHUB_ENV
-          # Strip a trailing .git so the URL points at the repo's web page
-          # (assumes a GitHub-style source, since /commit/<sha> is GitHub's
-          # path; a GitLab source would need /-/commit/<sha> instead).
           KERNEL_SOURCE_WEB="${{ inputs.kernel_source }}"
           KERNEL_SOURCE_WEB="${KERNEL_SOURCE_WEB%.git}"
           KERNEL_COMMIT_URL="${KERNEL_SOURCE_WEB}/commit/${KERNEL_COMMIT}"
@@ -200,14 +198,11 @@ jobs:
         run: |
           mkdir -p toolchains
           cd toolchains
-          # Support any .tar.xz toolchain URL, not just the default LLVM 22.1.8
-          # release, so a custom prebuilt clang can be dropped in via input.
           CLANG_ARCHIVE=$(basename "${{ inputs.clang_url }}")
           wget -q "${{ inputs.clang_url }}" -O "${CLANG_ARCHIVE}"
           mkdir llvm-toolchain
           tar -xf "${CLANG_ARCHIVE}" -C llvm-toolchain --strip-components=1
 
-      # ---- ccache-ECS (cctv18 style layered ccache) ----
       - name: Configure ccache dir and key
         run: |
           echo "CCACHE_DIR=$HOME/.ccache_marble" >> $GITHUB_ENV
@@ -222,12 +217,6 @@ jobs:
           echo "Deleting old repo ccache to force a fresh save..."
           gh cache delete "${CCACHE_REAL_KEY}-${{ runner.os }}-${{ inputs.kernel_branch }}-${{ matrix.ksu_type }}" -R ${{ github.repository }} || echo "No old ccache to delete"
 
-      # Skipped entirely when ccache_update=true. The restore-keys below fall
-      # back from most to least specific: same branch+manager exactly, then
-      # same branch regardless of manager, then same OS regardless of branch.
-      # This lets all 5 matrix legs reuse each other's shared object files on
-      # a cache miss, while each leg still saves under its own exact key below
-      # (see "Save ccache"), so parallel legs never race to write one key.
       - name: Restore ccache
         if: ${{ !inputs.ccache_update }}
         uses: actions/cache/restore@v4
@@ -261,13 +250,10 @@ jobs:
           export KBUILD_BUILD_USER="Rebuild By"
           export KBUILD_BUILD_HOST="Yudharn"
 
-          # Capture the toolchain's real reported version (not just the URL),
-          # since inputs.clang_url may point at a different clang than default.
           CLANG_VERSION=$("${CC}" --version | head -n1)
           echo "CLANG_VERSION=${CLANG_VERSION}" >> $GITHUB_ENV
           echo "==> Using Clang/LLVM toolchain: ${CLANG_VERSION} (from ${{ inputs.clang_url }})"
 
-          # ccache-ECS tuning: normalize paths/timestamps so cache hits across runs
           export CCACHE_COMPILERCHECK="none"
           export CCACHE_BASEDIR="${GITHUB_WORKSPACE}"
           export CCACHE_NOHASHDIR="true"
@@ -289,9 +275,6 @@ jobs:
 
           cd ${SOC}
 
-          # Snapshot existing top-level dirs so we can detect whichever folder
-          # the selected KSU fork's setup.sh clones into below (the folder
-          # name differs per fork, e.g. "KernelSU" vs "KernelSU-Next").
           KSU_DIRS_BEFORE=$(ls -d */ 2>/dev/null | sort || true)
 
           case "${{ matrix.ksu_type }}" in
@@ -324,10 +307,8 @@ jobs:
               ;;              
           esac
 
-          # ---- Capture KSU Manager source version (for release notes) ----
           if [[ "${{ matrix.ksu_type }}" != "None" ]]; then
             KSU_DIRS_AFTER=$(ls -d */ 2>/dev/null | sort || true)
-            # Whatever wasn't in the "before" snapshot is the dir setup.sh just cloned.
             KSU_DIR=$(comm -13 <(echo "$KSU_DIRS_BEFORE") <(echo "$KSU_DIRS_AFTER") | head -n1 | sed 's:/$::')
 
             if [[ -n "$KSU_DIR" && -d "${KSU_DIR}/.git" ]]; then
@@ -350,9 +331,6 @@ jobs:
 
           if [[ "${{ inputs.susfs }}" == true ]]; then
             if [[ -n "${{ inputs.susfs_commit }}" ]]; then
-              # A specific commit was requested: a shallow clone of the branch
-              # tip won't necessarily contain it, so clone the full branch
-              # history and check out the requested commit explicitly.
               git clone -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs
               cd susfs
               git checkout "${{ inputs.susfs_commit }}"
@@ -362,16 +340,10 @@ jobs:
               echo "SUSFS_COMMIT_URL=${SUSFS_COMMIT_URL}" >> $GITHUB_ENV
               echo "==> SUSFS: using custom commit ${SUSFS_COMMIT} on branch gki-android12-5.10 (${SUSFS_COMMIT_URL})"
             else
-              # Cloning by branch name (no tag/commit pin) always checks out the
-              # branch tip, i.e. the latest commit, at the time the job runs.
-              # --depth=1 just makes that shallow/fast; we still capture the SHA
-              # so the exact SUSFS commit used is visible in logs/release notes.
               git clone --depth=1 -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs
               cd susfs
               SUSFS_COMMIT=$(git rev-parse --short HEAD)
               echo "SUSFS_COMMIT=${SUSFS_COMMIT}" >> $GITHUB_ENV
-              # susfs4ksu is hosted on GitLab, whose commit path is /-/commit/<sha>
-              # (GitHub's is /commit/<sha> without the /-) — different host, different path.
               SUSFS_COMMIT_URL="https://gitlab.com/simonpunk/susfs4ksu/-/commit/${SUSFS_COMMIT}"
               echo "SUSFS_COMMIT_URL=${SUSFS_COMMIT_URL}" >> $GITHUB_ENV
               echo "==> SUSFS: using latest commit ${SUSFS_COMMIT} on branch gki-android12-5.10 (${SUSFS_COMMIT_URL})"
@@ -406,24 +378,25 @@ jobs:
           fi
 
           if [[ "${{ inputs.rekernel_ebpf }}" == true ]]; then
-            # Nothing to do to the kernel source/defconfig here: the eBPF
-            # variant is an out-of-tree .bpf.o + userspace daemon (NDK build),
-            # not something patched into vmlinux. It's built in the separate
-            # "Build Re-Kernel (eBPF)" step below, once out/vmlinux exists
-            # (it needs the kernel's own BTF to generate vmlinux.h). Safe to
-            # run alongside Netlink above — the eBPF side attaches via kprobe
-            # at runtime and doesn't touch binder.c, so there's no conflict
-            # with the Netlink patch.
             echo "==> Re-Kernel eBPF selected; will build after the kernel Image is ready."
+          fi
+
+          if [[ "${{ inputs.nomount }}" == true ]]; then
+            git clone --depth=1 https://github.com/maxsteeel/nomount.git nomount-src
+            NOMOUNT_COMMIT=$(cd nomount-src && git rev-parse --short HEAD)
+            echo "NOMOUNT_COMMIT=${NOMOUNT_COMMIT}" >> $GITHUB_ENV
+            NOMOUNT_COMMIT_URL="https://github.com/maxsteeel/nomount/commit/${NOMOUNT_COMMIT}"
+            echo "NOMOUNT_COMMIT_URL=${NOMOUNT_COMMIT_URL}" >> $GITHUB_ENV
+            patch -p1 < nomount-src/kernel/nomount_5.10_kernel_integration.patch
+            cp nomount-src/kernel/src/* fs/
+            echo "CONFIG_NOMOUNT=y" >> arch/arm64/configs/marble_defconfig
+            echo "==> NoMount: using latest commit ${NOMOUNT_COMMIT} on branch master (${NOMOUNT_COMMIT_URL})"
           fi
 
           echo "-${KERNEL_NAME}-${{ github.actor }}" > .scmversion
 
           echo "CONFIG_TMPFS_XATTR=y" >> arch/arm64/configs/marble_defconfig
 
-          # ---- Generic eBPF support (always enabled) ----
-          # Core bpf() syscall + JIT + cgroup/tc attach points + kprobe/uprobe
-          # tracing hooks + BTF (for CO-RE / libbpf-based tooling).
           echo "CONFIG_BPF_SYSCALL=y" >> arch/arm64/configs/marble_defconfig
           echo "CONFIG_BPF_JIT=y" >> arch/arm64/configs/marble_defconfig
           echo "CONFIG_CGROUP_BPF=y" >> arch/arm64/configs/marble_defconfig
@@ -435,15 +408,12 @@ jobs:
           echo "CONFIG_NET_CLS_BPF=y" >> arch/arm64/configs/marble_defconfig
           echo "CONFIG_NET_ACT_BPF=y" >> arch/arm64/configs/marble_defconfig
           echo "CONFIG_NET_SCH_INGRESS=y" >> arch/arm64/configs/marble_defconfig
-          # BTF requires DEBUG_INFO; pahole (dwarves) is already installed
-          # in the deps step above so it can generate the BTF section.
           echo "CONFIG_DEBUG_INFO=y" >> arch/arm64/configs/marble_defconfig
           echo "CONFIG_DEBUG_INFO_BTF=y" >> arch/arm64/configs/marble_defconfig
           echo "CONFIG_DEBUG_INFO_BTF_MODULES=y" >> arch/arm64/configs/marble_defconfig
 
           make O=out marble_defconfig
 
-          # ccache must be injected via make command-line CC (LLVM=1 overrides the env CC otherwise)
           make -j$(nproc) O=out CC="ccache ${CLANG_ROOT}/clang" HOSTCC="ccache ${CLANG_ROOT}/clang" Image
 
           echo "ccache status after build:"
@@ -461,30 +431,22 @@ jobs:
         run: |
           set -e
 
-          # ---- Host bpftool (static, decoupled from the runner's own kernel) ----
-          # Used to dump BTF type info from the vmlinux we just built into a C header.
           curl -sSL -o bpftool.tar.gz \
             https://github.com/libbpf/bpftool/releases/download/v7.7.0/bpftool-v7.7.0-amd64.tar.gz
           mkdir -p bpftool-bin
           tar -xzf bpftool.tar.gz -C bpftool-bin
           chmod +x bpftool-bin/bpftool
 
-          # ---- Android NDK r27d (eBPF-Source/Makefile's default NDK toolchain) ----
           wget -q https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
           unzip -q android-ndk-r27d-linux.zip
           rm -f android-ndk-r27d-linux.zip
 
-          # ---- Fetch only the eBPF-Source subfolder from Re-Kernel ----
           git clone --depth=1 --filter=blob:none --sparse \
             https://github.com/Sakion-Team/Re-Kernel.git rekernel-ebpf-src
           cd rekernel-ebpf-src
           git sparse-checkout set eBPF-Source
           cd eBPF-Source
 
-          # ---- Device-specific vmlinux.h, from the kernel we just built ----
-          # (README says pull /sys/kernel/btf/vmlinux off a running device; using
-          # our own freshly-built vmlinux is equivalent and exactly matches what
-          # will actually be flashed).
           "${GITHUB_WORKSPACE}/bpftool-bin/bpftool" btf dump file \
             "${GITHUB_WORKSPACE}/${SOC}/out/vmlinux" format c > include/vmlinux.h
 
@@ -496,9 +458,11 @@ jobs:
             make ARCH=aarch64 API=35 NDK_PATH="${NDK_PATH}" EXTRA_BPF_CFLAGS=-DRK_DEFINE_BINDER_TYPES
           fi
 
-          mkdir -p "${GITHUB_WORKSPACE}/rekernel-ebpf-out"
-          cp out/rekernel.bpf.o "${GITHUB_WORKSPACE}/rekernel-ebpf-out/"
-          cp out/rekerneld_aarch64 "${GITHUB_WORKSPACE}/rekernel-ebpf-out/"
+          # Staged flat at workspace root on purpose: upload-artifact preserves
+          # subdirectory structure, and Create_Release checks for these two
+          # files at a flat path once the artifact is downloaded.
+          cp out/rekernel.bpf.o "${GITHUB_WORKSPACE}/rekernel.bpf.o"
+          cp out/rekerneld_aarch64 "${GITHUB_WORKSPACE}/rekerneld_aarch64"
 
       - name: Make AnyKernel3
         run: |
@@ -508,6 +472,10 @@ jobs:
             ZIP_NAME="${ZIP_NAME}_SuSFS"
           fi
 
+          if [[ "${{ inputs.nomount }}" == true ]]; then
+            ZIP_NAME="${ZIP_NAME}_NoMount"
+          fi
+
           if [[ "${{ inputs.rekernel_ebpf }}" == true ]]; then
             ZIP_NAME="${ZIP_NAME}_eBPF"
           fi
@@ -515,46 +483,130 @@ jobs:
           ZIP_NAME="${ZIP_NAME}_$(date -u +"%Y%m%d")"
           git clone --depth=1 -b Anykernel3 https://github.com/yudharn/AnyKernel3 AnyKernel3
 
-          # This fork's anykernel.sh expects a 7z-compressed Image (unpacked
-          # on-device via its own bundled 7za), so compress it into that.
-          # cd into the boot dir first so the archive stores just "Image",
-          # not the full marble/out/arch/arm64/boot/Image path.
           (cd ${SOC}/out/arch/arm64/boot && 7z a "${GITHUB_WORKSPACE}/AnyKernel3/Image.7z" Image)
           cp ${SOC}/out/arch/arm64/boot/Image ./Image
 
-          # anykernel.sh ships with SHA1_STOCK="0" (an unfilled placeholder).
-          # Its post-unpack check compares a real sha1 against that literal
-          # "0", which can never match, so every flash aborts claiming the
-          # kernel image is corrupted. Inject this build's real sha1 so the
-          # check is actually meaningful instead of always failing.
           IMAGE_SHA1=$(sha1sum ${SOC}/out/arch/arm64/boot/Image | awk '{print $1}')
           sed -i "s/^SHA1_STOCK=\"0\"/SHA1_STOCK=\"${IMAGE_SHA1}\"/" AnyKernel3/anykernel.sh
           cd AnyKernel3
 
           zip -r9 ../"${ZIP_NAME}.zip" * -x .git
 
-          # Persist the exact zip filename so the release step doesn't have
-          # to guess with `ls *.zip` (which breaks if any other .zip file,
-          # e.g. the NDK download in the eBPF step, ends up in the workspace).
           echo "ZIP_NAME=${ZIP_NAME}.zip" >> $GITHUB_ENV
 
-      - name: Create GitHub Release
+      - name: Write build metadata
         run: |
-          BUILD_TIME=$(date -u +"%Y%m%d_%H%M")
-          REL_NAME="${KERNEL_NAME}-${{ matrix.ksu_type }}-${BUILD_TIME}"
-          echo "REL_NAME=${REL_NAME}" >> $GITHUB_ENV
-          cd ${GITHUB_WORKSPACE}
-          ZIP_FILE="${ZIP_NAME}"
+          jq -n \
+            --arg ksu_type "${{ matrix.ksu_type }}" \
+            --arg kernel_name "${KERNEL_NAME}" \
+            --arg zip_name "${ZIP_NAME}" \
+            --arg ksu_manager_version "${KSU_MANAGER_VERSION:-unknown}" \
+            --arg ksu_manager_commit "${KSU_MANAGER_COMMIT:-}" \
+            --arg ksu_manager_commit_url "${KSU_MANAGER_COMMIT_URL:-}" \
+            --arg kernel_commit "${KERNEL_COMMIT}" \
+            --arg kernel_commit_url "${KERNEL_COMMIT_URL}" \
+            --arg clang_version "${CLANG_VERSION}" \
+            --arg susfs_commit "${SUSFS_COMMIT:-}" \
+            --arg susfs_commit_url "${SUSFS_COMMIT_URL:-}" \
+            --arg nomount_commit "${NOMOUNT_COMMIT:-}" \
+            --arg nomount_commit_url "${NOMOUNT_COMMIT_URL:-}" \
+            '{ksu_type:$ksu_type,kernel_name:$kernel_name,zip_name:$zip_name,ksu_manager_version:$ksu_manager_version,ksu_manager_commit:$ksu_manager_commit,ksu_manager_commit_url:$ksu_manager_commit_url,kernel_commit:$kernel_commit,kernel_commit_url:$kernel_commit_url,clang_version:$clang_version,susfs_commit:$susfs_commit,susfs_commit_url:$susfs_commit_url,nomount_commit:$nomount_commit,nomount_commit_url:$nomount_commit_url}' \
+            > "${GITHUB_WORKSPACE}/metadata.json"
 
-          ASSETS=("${ZIP_FILE}")
-          if [[ "${{ inputs.rekernel_ebpf }}" == true ]]; then
-            ASSETS+=("rekernel-ebpf-out/rekernel.bpf.o" "rekernel-ebpf-out/rekerneld_aarch64")
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.ksu_type }}
+          path: |
+            ${{ env.ZIP_NAME }}
+            metadata.json
+            rekernel.bpf.o
+            rekerneld_aarch64
+          if-no-files-found: ignore
+          retention-days: 1
+
+  Create_Release:
+    name: Create combined GitHub Release
+    needs: Build_Kernel_Marble
+
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: build-*
+
+      - name: Create combined release
+        run: |
+          set -e
+          mkdir -p artifacts
+          cd artifacts
+
+          ASSETS=()
+          NOTES_ROWS=""
+          EBPF_DONE=false
+          FIRST=true
+
+          for dir in build-*/; do
+            META="${dir}metadata.json"
+            [[ -f "$META" ]] || { echo "::warning::No metadata.json in ${dir}, skipping"; continue; }
+
+            KSU_TYPE=$(jq -r '.ksu_type' "$META")
+            ZIP_NAME=$(jq -r '.zip_name' "$META")
+            KSU_MANAGER_VERSION=$(jq -r '.ksu_manager_version' "$META")
+            KSU_MANAGER_COMMIT=$(jq -r '.ksu_manager_commit' "$META")
+            KSU_MANAGER_COMMIT_URL=$(jq -r '.ksu_manager_commit_url' "$META")
+
+            if $FIRST; then
+              KERNEL_NAME=$(jq -r '.kernel_name' "$META")
+              KERNEL_COMMIT=$(jq -r '.kernel_commit' "$META")
+              KERNEL_COMMIT_URL=$(jq -r '.kernel_commit_url' "$META")
+              CLANG_VERSION=$(jq -r '.clang_version' "$META")
+              SUSFS_COMMIT=$(jq -r '.susfs_commit' "$META")
+              SUSFS_COMMIT_URL=$(jq -r '.susfs_commit_url' "$META")
+              NOMOUNT_COMMIT=$(jq -r '.nomount_commit' "$META")
+              NOMOUNT_COMMIT_URL=$(jq -r '.nomount_commit_url' "$META")
+              FIRST=false
+            fi
+
+            ASSETS+=("${dir}${ZIP_NAME}")
+
+            if [[ -n "$KSU_MANAGER_COMMIT" ]]; then
+              ksu_row_version="${KSU_MANAGER_VERSION}@[${KSU_MANAGER_COMMIT}](${KSU_MANAGER_COMMIT_URL})"
+            else
+              ksu_row_version="${KSU_MANAGER_VERSION}"
+            fi
+            NOTES_ROWS="${NOTES_ROWS}
+           | ${KSU_TYPE} | ${ksu_row_version} | ${ZIP_NAME} |"
+
+            if [[ "$EBPF_DONE" == false && -f "${dir}rekernel.bpf.o" ]]; then
+              ASSETS+=("${dir}rekernel.bpf.o" "${dir}rekerneld_aarch64")
+              EBPF_DONE=true
+            fi
+          done
+
+          if [[ ${#ASSETS[@]} -eq 0 ]]; then
+            echo "::error::No successful builds found in any matrix leg — skipping release creation."
+            exit 1
           fi
 
           if [[ "${{ inputs.susfs }}" == true ]]; then
             susfs_checkbox="Supported (susfs4ksu@[${SUSFS_COMMIT}](${SUSFS_COMMIT_URL}))"
           else
             susfs_checkbox="Unsupported"
+          fi
+
+          if [[ "${{ inputs.nomount }}" == true ]]; then
+            nomount_checkbox="Supported (nomount@[${NOMOUNT_COMMIT}](${NOMOUNT_COMMIT_URL}))"
+          else
+            nomount_checkbox="Unsupported"
           fi
 
           if [[ "${{ inputs.BBG }}" == true ]]; then
@@ -575,13 +627,10 @@ jobs:
             rekernel_ebpf_checkbox="Unsupported"
           fi
 
-          if [[ "${{ matrix.ksu_type }}" != "None" && -n "${KSU_MANAGER_COMMIT}" ]]; then
-            ksu_manager_version="${KSU_MANAGER_VERSION}@[${KSU_MANAGER_COMMIT}](${KSU_MANAGER_COMMIT_URL})"
-          else
-            ksu_manager_version="N/A"
-          fi
+          BUILD_TIME=$(date -u +"%Y%m%d_%H%M")
+          REL_NAME="${KERNEL_NAME}-${BUILD_TIME}"
 
-          gh release create "$REL_NAME" --title "$REL_NAME" --notes "# Kernel Melt Rebase for POCO F5 (marble)
+          gh release create "$REL_NAME" -R ${{ github.repository }} --title "$REL_NAME" --notes "# Kernel Melt Rebase for POCO F5 (marble)
 
            | | |
            |:---|:---|
@@ -592,9 +641,8 @@ jobs:
            | 🛠️ Build Scope | ZIP |
            | 📦 Source | ${{ inputs.kernel_source }} |
            | 🔗 Kernel branch | ${{ inputs.kernel_branch }}@[${KERNEL_COMMIT}](${KERNEL_COMMIT_URL})
-           | 💻 KSU Manager type | ${{ matrix.ksu_type }} 
-           | 🏷️ KSU Manager version | ${ksu_manager_version} 
            | 🔧 SuSFS Version | ${susfs_checkbox} 
+           | 🚫 NoMount | ${nomount_checkbox} 
            | ⚙️ BBG Patch | ${bbg_checkbox} 
            | ⚙️ Re-Kernel (Netlink) | ${rekernel_netlink_checkbox}
            | ⚙️ Re-Kernel (eBPF) | ${rekernel_ebpf_checkbox}
@@ -602,11 +650,13 @@ jobs:
            | 🔨 Compiler | ${CLANG_VERSION} |
 
            ---
+
+           ### 💻 KSU Managers in this build
+
+           | Manager | Version | Zip |
+           |:---|:---|:---|${NOTES_ROWS}
+
+           ---
           " "${ASSETS[@]}"
-
-
-
-
-
 
           
