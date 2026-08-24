@@ -533,14 +533,18 @@ jobs:
           mkdir -p artifacts
           cd artifacts
 
+          echo "==> Downloaded artifact layout:"
+          find . -maxdepth 3 -type f | sort
+
           ASSETS=()
           NOTES_ROWS=""
           EBPF_DONE=false
           FIRST=true
+          FOUND_ANY=false
 
-          for dir in build-*/; do
-            META="${dir}metadata.json"
-            [[ -f "$META" ]] || { echo "::warning::No metadata.json in ${dir}, skipping"; continue; }
+          while IFS= read -r META; do
+            FOUND_ANY=true
+            dir="$(dirname "$META")/"
 
             KSU_TYPE=$(jq -r '.ksu_type' "$META")
             ZIP_NAME=$(jq -r '.zip_name' "$META")
@@ -573,7 +577,11 @@ jobs:
               ASSETS+=("${dir}rekernel.bpf.o" "${dir}rekerneld_aarch64")
               EBPF_DONE=true
             fi
-          done
+          done < <(find . -type f -name 'metadata.json' | sort)
+
+          if [[ "$FOUND_ANY" == false ]]; then
+            echo "::warning::No metadata.json found anywhere under artifacts/, skipping"
+          fi
 
           if [[ ${#ASSETS[@]} -eq 0 ]]; then
             echo "::error::No successful builds found in any matrix leg — skipping release creation."
@@ -634,5 +642,6 @@ jobs:
 
            ---
           " "${ASSETS[@]}"
+
 
           
