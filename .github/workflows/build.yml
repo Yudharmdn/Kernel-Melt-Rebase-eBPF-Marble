@@ -455,7 +455,7 @@ jobs:
 
       - name: Make AnyKernel3
         run: |
-          ZIP_NAME="${KERNEL_NAME}_${{ matrix.ksu_type }}"
+          ZIP_NAME="${KERNEL_BASE_VERSION}_${KERNEL_NAME}_${{ matrix.ksu_type }}"
 
           if [[ "${{ inputs.susfs }}" == true ]]; then
             ZIP_NAME="${ZIP_NAME}_SuSFS"
