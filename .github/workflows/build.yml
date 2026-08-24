@@ -20,7 +20,6 @@ on:
         options:
           - melt-rebase
           - melt-Guxin12-A
-          - melt-rebase-4LazyGoogle
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz). Leave default to use the official LLVM 22.1.8 release."
@@ -186,6 +185,17 @@ jobs:
           KERNEL_COMMIT_URL="${KERNEL_SOURCE_WEB}/commit/${KERNEL_COMMIT}"
           echo "KERNEL_COMMIT_URL=${KERNEL_COMMIT_URL}" >> $GITHUB_ENV
           echo "==> Kernel source: using latest commit ${KERNEL_COMMIT} on branch ${{ inputs.kernel_branch }} (${KERNEL_COMMIT_URL})"
+
+          KVER=$(grep -m1 '^VERSION = ' Makefile | awk '{print $3}')
+          KPATCHLEVEL=$(grep -m1 '^PATCHLEVEL = ' Makefile | awk '{print $3}')
+          KSUBLEVEL=$(grep -m1 '^SUBLEVEL = ' Makefile | awk '{print $3}')
+          if [[ -n "$KVER" && -n "$KPATCHLEVEL" && -n "$KSUBLEVEL" ]]; then
+            KERNEL_BASE_VERSION="${KVER}.${KPATCHLEVEL}.${KSUBLEVEL}"
+          else
+            KERNEL_BASE_VERSION="unknown"
+          fi
+          echo "KERNEL_BASE_VERSION=${KERNEL_BASE_VERSION}" >> $GITHUB_ENV
+          echo "==> Detected kernel base version: ${KERNEL_BASE_VERSION}"
           cd ..
 
       - name: Download Clang/LLVM Toolchain
@@ -440,9 +450,8 @@ jobs:
             make ARCH=aarch64 API=35 NDK_PATH="${NDK_PATH}" EXTRA_BPF_CFLAGS=-DRK_DEFINE_BINDER_TYPES
           fi
 
-          mkdir -p "${GITHUB_WORKSPACE}/rekernel-ebpf-out"
-          cp out/rekernel.bpf.o "${GITHUB_WORKSPACE}/rekernel-ebpf-out/"
-          cp out/rekerneld_aarch64 "${GITHUB_WORKSPACE}/rekernel-ebpf-out/"
+          cp out/rekernel.bpf.o "${GITHUB_WORKSPACE}/rekernel.bpf.o"
+          cp out/rekerneld_aarch64 "${GITHUB_WORKSPACE}/rekerneld_aarch64"
 
       - name: Make AnyKernel3
         run: |
@@ -481,10 +490,11 @@ jobs:
             --arg ksu_manager_commit_url "${KSU_MANAGER_COMMIT_URL:-}" \
             --arg kernel_commit "${KERNEL_COMMIT}" \
             --arg kernel_commit_url "${KERNEL_COMMIT_URL}" \
+            --arg kernel_base_version "${KERNEL_BASE_VERSION:-unknown}" \
             --arg clang_version "${CLANG_VERSION}" \
             --arg susfs_commit "${SUSFS_COMMIT:-}" \
             --arg susfs_commit_url "${SUSFS_COMMIT_URL:-}" \
-            '{ksu_type:$ksu_type,kernel_name:$kernel_name,zip_name:$zip_name,ksu_manager_version:$ksu_manager_version,ksu_manager_commit:$ksu_manager_commit,ksu_manager_commit_url:$ksu_manager_commit_url,kernel_commit:$kernel_commit,kernel_commit_url:$kernel_commit_url,clang_version:$clang_version,susfs_commit:$susfs_commit,susfs_commit_url:$susfs_commit_url}' \
+            '{ksu_type:$ksu_type,kernel_name:$kernel_name,zip_name:$zip_name,ksu_manager_version:$ksu_manager_version,ksu_manager_commit:$ksu_manager_commit,ksu_manager_commit_url:$ksu_manager_commit_url,kernel_commit:$kernel_commit,kernel_commit_url:$kernel_commit_url,kernel_base_version:$kernel_base_version,clang_version:$clang_version,susfs_commit:$susfs_commit,susfs_commit_url:$susfs_commit_url}' \
             > "${GITHUB_WORKSPACE}/metadata.json"
 
       - name: Upload build artifact
@@ -494,8 +504,8 @@ jobs:
           path: |
             ${{ env.ZIP_NAME }}
             metadata.json
-            rekernel-ebpf-out/rekernel.bpf.o
-            rekernel-ebpf-out/rekerneld_aarch64
+            rekernel.bpf.o
+            rekerneld_aarch64
           if-no-files-found: ignore
           retention-days: 1
 
@@ -542,6 +552,7 @@ jobs:
               KERNEL_NAME=$(jq -r '.kernel_name' "$META")
               KERNEL_COMMIT=$(jq -r '.kernel_commit' "$META")
               KERNEL_COMMIT_URL=$(jq -r '.kernel_commit_url' "$META")
+              KERNEL_BASE_VERSION=$(jq -r '.kernel_base_version' "$META")
               CLANG_VERSION=$(jq -r '.clang_version' "$META")
               SUSFS_COMMIT=$(jq -r '.susfs_commit' "$META")
               SUSFS_COMMIT_URL=$(jq -r '.susfs_commit_url' "$META")
@@ -594,7 +605,7 @@ jobs:
           fi
 
           BUILD_TIME=$(date -u +"%Y%m%d_%H%M")
-          REL_NAME="${KERNEL_NAME}-${BUILD_TIME}"
+          REL_NAME="${KERNEL_BASE_VERSION}-${KERNEL_NAME}-${BUILD_TIME}"
 
           gh release create "$REL_NAME" -R ${{ github.repository }} --title "$REL_NAME" --notes "# Kernel Melt Rebase for POCO F5 (marble)
 
@@ -603,7 +614,7 @@ jobs:
            | 📱 Device | POCO F5 (marble) • Redmi Note 12 Turbo (marble) |
            | 🟠 ROM Support | HyperOS 3 A16 Only |
            | 🖥️ Kernel Name | ${KERNEL_NAME}
-           | 🧰 Kernel Base | android12-5.10 |
+           | 🧰 Kernel Base | ${KERNEL_BASE_VERSION} |
            | 🛠️ Build Scope | ZIP |
            | 📦 Source | ${{ inputs.kernel_source }} |
            | 🔗 Kernel branch | ${{ inputs.kernel_branch }}@[${KERNEL_COMMIT}](${KERNEL_COMMIT_URL})
@@ -623,4 +634,5 @@ jobs:
 
            ---
           " "${ASSETS[@]}"
+
           
