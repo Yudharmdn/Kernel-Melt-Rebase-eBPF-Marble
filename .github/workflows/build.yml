@@ -223,7 +223,7 @@ jobs:
 
       - name: Restore ccache
         if: ${{ !inputs.ccache_update }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         id: ccache-restore
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -413,7 +413,7 @@ jobs:
 
       - name: Save ccache
         if: ${{ always() && steps.ccache-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ env.CCACHE_DIR }}
           key: ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-${{ inputs.kernel_branch }}-${{ matrix.ksu_type }}
@@ -498,7 +498,7 @@ jobs:
             > "${GITHUB_WORKSPACE}/metadata.json"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.ksu_type }}
           path: |
@@ -522,7 +522,7 @@ jobs:
       actions: read
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: build-*
