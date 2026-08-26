@@ -22,10 +22,10 @@ on:
           - melt-Guxin12-A
 
       clang_url:
-        description: "Clang/LLVM toolchain download URL (.tar.xz). Leave default to use the official LLVM 22.1.8 release."
+        description: "Clang/LLVM toolchain download URL (.tar.xz)"
         required: true
         type: string
-        default: "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-X64.tar.xz"
+        default: "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.0/LLVM-23.1.0-Linux-X64.tar.xz"
 
       manager_official_kernelsu:
         description: "Build Official-KernelSU"
