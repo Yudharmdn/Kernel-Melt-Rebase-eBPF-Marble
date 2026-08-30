@@ -201,12 +201,12 @@ jobs:
 
       - name: Download Clang/LLVM Toolchain
         run: |
-          mkdir -p toolchains
-          cd toolchains
+          mkdir -p build_toolchain
+          cd ~/build_toolchain
           CLANG_ARCHIVE=$(basename "${{ inputs.clang_url }}")
           wget -q "${{ inputs.clang_url }}" -O "${CLANG_ARCHIVE}"
           mkdir llvm-toolchain
-          tar -xf "${CLANG_ARCHIVE}" -C llvm-toolchain --strip-components=1
+          tar -xJf "${CLANG_ARCHIVE}" -C llvm-toolchain --strip-components=1
 
       - name: Configure ccache dir and key
         run: |
