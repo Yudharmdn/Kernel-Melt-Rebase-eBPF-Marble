@@ -98,6 +98,18 @@ on:
         type: boolean
         default: false
 
+      droidspaces:
+        description: "Add DroidSpaces support"
+        required: true
+        type: boolean
+        default: false
+
+      nomount:
+        description: "Add NoMount support"
+        required: true
+        type: boolean
+        default: false
+
       ccache_update:
         description: "Refresh ccache"
         required: true
@@ -215,7 +227,11 @@ jobs:
         run: |
           echo "CCACHE_DIR=$HOME/.ccache_marble" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=3G" >> $GITHUB_ENV
-          CCACHE_REAL_KEY=${CCACHE_KEY}-none
+          if [[ "${{ inputs.droidspaces }}" == true ]]; then
+            CCACHE_REAL_KEY=${CCACHE_KEY}-Droidspaces
+          else
+            CCACHE_REAL_KEY=${CCACHE_KEY}-none
+          fi
           echo "CCACHE_REAL_KEY=$CCACHE_REAL_KEY" >> $GITHUB_ENV
 
       - name: Purge old ccache (on refresh)
@@ -372,6 +388,17 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> arch/arm64/configs/marble_defconfig
           fi
 
+          if [[ "${{ inputs.nomount }}" == true ]]; then
+            echo "::group::NoMount integration"
+            if [[ "${{ inputs.susfs }}" == true ]]; then
+              echo "::warning::susfs and nomount are both enabled - susfs's SUS_KSTAT patches fs/stat.c, which nomount's own VFS hooks may also touch. If anything below fails, try disabling one to isolate it."
+            fi
+
+            curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/master/kernel/setup.sh" | bash
+            echo "CONFIG_NOMOUNT=y" >> arch/arm64/configs/marble_defconfig
+            echo "::endgroup::"
+          fi
+
           if [[ "${{ inputs.BBG }}" == true ]]; then
             wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
             echo "CONFIG_BBG=y" >> arch/arm64/configs/marble_defconfig
@@ -387,6 +414,59 @@ jobs:
 
           if [[ "${{ inputs.rekernel_ebpf }}" == true ]]; then
             echo "==> Re-Kernel eBPF selected; will build after the kernel Image is ready."
+          fi
+
+          if [[ "${{ inputs.droidspaces }}" == true ]]; then
+            echo "::group::DroidSpaces integration"
+            # marble (sm7475) ships kernel 5.10 -> DroidSpaces 5.10 patch path.
+            # Per DroidSpaces-OSS's own docs these kABI patches are NOT optional on
+            # GKI: enabling CONFIG_SYSVIPC/CONFIG_IPC_NS/CONFIG_POSIX_MQUEUE without
+            # them applied can bootloop the device. Some kernel_source branches do
+            # carry the fix natively though, which makes the patch a clean no-op
+            # there. So for each patch: try forward first; if that fails, check
+            # reverse-apply to confirm it's genuinely already present (not just
+            # "didn't apply for some other reason") before treating it as fine.
+            # Only append the DroidSpaces config fragment below if BOTH patches
+            # come back confirmed either way - if either is a genuine unknown,
+            # skip it entirely rather than risk shipping an unsafe kernel.
+            apply_droidspaces_patch() {
+              local patch_file="$1" label="$2"
+              if patch -p1 -N --fuzz=0 --dry-run --silent < "$patch_file" > /dev/null 2>&1; then
+                patch -p1 -N --fuzz=0 < "$patch_file"
+                echo "==> DroidSpaces ${label}: applied."
+                return 0
+              elif patch -p1 -R --fuzz=0 --dry-run --silent < "$patch_file" > /dev/null 2>&1; then
+                echo "==> DroidSpaces ${label}: already present natively on this branch (confirmed via reverse-check) - not re-applying."
+                return 0
+              else
+                echo "::warning::DroidSpaces ${label} doesn't apply cleanly in either direction - can't confirm the kABI fix is actually present on this tree."
+                return 1
+              fi
+            }
+
+            DROIDSPACES_SAFE=true
+
+            curl -sLo patch-for-below-6.12.patch https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/refs/heads/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch
+            apply_droidspaces_patch patch-for-below-6.12.patch "patch 001 (sysvipc kabi fix)" || DROIDSPACES_SAFE=false
+
+            curl -sLo patch-for-5.10-or-lower.patch https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/refs/heads/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch
+            apply_droidspaces_patch patch-for-5.10-or-lower.patch "patch 002 (posix_mqueue abi padding)" || DROIDSPACES_SAFE=false
+
+            if [[ "$DROIDSPACES_SAFE" == true ]]; then
+              if [[ -f "${GITHUB_WORKSPACE}/configs/droidspaces-gki.config" ]]; then
+                # marble builds off a flat marble_defconfig (no vendor/ fragment
+                # merge like ingres's gki_defconfig), so the fragment is appended
+                # directly onto marble_defconfig instead of being passed as a
+                # separate `make defconfig` argument.
+                cat "${GITHUB_WORKSPACE}/configs/droidspaces-gki.config" >> arch/arm64/configs/marble_defconfig
+                echo "==> DroidSpaces: config fragment appended to marble_defconfig."
+              else
+                echo "::warning::configs/droidspaces-gki.config not found in this repo's root - DroidSpaces config fragment not applied (nothing to enable it with). Add that file to the repo (see ravindu644/Droidspaces-OSS 'Configuring GKI Kernels' docs) to actually turn DroidSpaces on."
+              fi
+            else
+              echo "::warning::Skipping the DroidSpaces config fragment entirely this run - at least one required kABI patch could not be confirmed. Enabling CONFIG_SYSVIPC/CONFIG_IPC_NS/CONFIG_POSIX_MQUEUE without it risks a bootloop per DroidSpaces-OSS's own docs, so this run won't have working DroidSpaces support."
+            fi
+            echo "::endgroup::"
           fi
 
           echo "-${KERNEL_NAME}-${{ github.actor }}" > .scmversion
@@ -463,6 +543,10 @@ jobs:
 
           if [[ "${{ inputs.susfs }}" == true ]]; then
             ZIP_NAME="${ZIP_NAME}_SuSFS"
+          fi
+
+          if [[ "${{ inputs.nomount }}" == true ]]; then
+            ZIP_NAME="${ZIP_NAME}_NoMount"
           fi
 
           if [[ "${{ inputs.rekernel_ebpf }}" == true ]]; then
@@ -616,6 +700,18 @@ jobs:
             rekernel_ebpf_checkbox="Unsupported"
           fi
 
+          if [[ "${{ inputs.droidspaces }}" == true ]]; then
+            droidspaces_checkbox="Supported"
+          else
+            droidspaces_checkbox="Unsupported"
+          fi
+
+          if [[ "${{ inputs.nomount }}" == true ]]; then
+            nomount_checkbox="Supported"
+          else
+            nomount_checkbox="Unsupported"
+          fi
+
           BUILD_TIME=$(date -u +"%Y%m%d_%H%M")
           REL_NAME="${KERNEL_BASE_VERSION}-${KERNEL_NAME}-${BUILD_TIME}"
 
@@ -634,6 +730,8 @@ jobs:
            | ⚙️ BBG Patch | ${bbg_checkbox} 
            | ⚙️ Re-Kernel (Netlink) | ${rekernel_netlink_checkbox}
            | ⚙️ Re-Kernel (eBPF) | ${rekernel_ebpf_checkbox}
+           | 🧩 DroidSpaces | ${droidspaces_checkbox}
+           | 🗂️ NoMount | ${nomount_checkbox}
            | 🧩 eBPF | Enabled (BTF/CO-RE, kprobe+uprobe, cgroup+tc hooks) |
            | 🔨 Compiler | ${CLANG_VERSION} |
 
@@ -646,6 +744,7 @@ jobs:
 
            ---
           " "${ASSETS[@]}"
+
 
 
           
