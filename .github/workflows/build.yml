@@ -23,6 +23,7 @@ on:
           - melt-Guxin12-A
           - Yudharn-melt-rebase
           - v1llhaze-sakura
+          - v1llhaze-staging
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz)"
