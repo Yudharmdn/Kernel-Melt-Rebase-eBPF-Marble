@@ -394,7 +394,7 @@ jobs:
               echo "::warning::susfs and nomount are both enabled - susfs's SUS_KSTAT patches fs/stat.c, which nomount's own VFS hooks may also touch. If anything below fails, try disabling one to isolate it."
             fi
 
-            curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/master/kernel/setup.sh" | bash
+            curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
             echo "CONFIG_NOMOUNT=y" >> arch/arm64/configs/marble_defconfig
             echo "::endgroup::"
           fi
