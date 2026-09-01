@@ -11,7 +11,6 @@ on:
         options:
           - https://github.com/yudharn/Pzqqt-Melt-Rebase
           - https://github.com/Yudharmdn/Guxin12-Melt-Rebase
-          - https://github.com/yudharn/test-kernel-source-5.10
 
       kernel_branch:
         description: "Branch on kernel_source above"
@@ -22,8 +21,6 @@ on:
           - melt-rebase
           - melt-Guxin12-A
           - Yudharn-melt-rebase
-          - v1llhaze-sakura
-          - v1llhaze-staging
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz)"
