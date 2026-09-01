@@ -418,17 +418,6 @@ jobs:
 
           if [[ "${{ inputs.droidspaces }}" == true ]]; then
             echo "::group::DroidSpaces integration"
-            # marble (sm7475) ships kernel 5.10 -> DroidSpaces 5.10 patch path.
-            # Per DroidSpaces-OSS's own docs these kABI patches are NOT optional on
-            # GKI: enabling CONFIG_SYSVIPC/CONFIG_IPC_NS/CONFIG_POSIX_MQUEUE without
-            # them applied can bootloop the device. Some kernel_source branches do
-            # carry the fix natively though, which makes the patch a clean no-op
-            # there. So for each patch: try forward first; if that fails, check
-            # reverse-apply to confirm it's genuinely already present (not just
-            # "didn't apply for some other reason") before treating it as fine.
-            # Only append the DroidSpaces config fragment below if BOTH patches
-            # come back confirmed either way - if either is a genuine unknown,
-            # skip it entirely rather than risk shipping an unsafe kernel.
             apply_droidspaces_patch() {
               local patch_file="$1" label="$2"
               if patch -p1 -N --fuzz=0 --dry-run --silent < "$patch_file" > /dev/null 2>&1; then
@@ -454,10 +443,6 @@ jobs:
 
             if [[ "$DROIDSPACES_SAFE" == true ]]; then
               if [[ -f "${GITHUB_WORKSPACE}/configs/droidspaces-gki.config" ]]; then
-                # marble builds off a flat marble_defconfig (no vendor/ fragment
-                # merge like ingres's gki_defconfig), so the fragment is appended
-                # directly onto marble_defconfig instead of being passed as a
-                # separate `make defconfig` argument.
                 cat "${GITHUB_WORKSPACE}/configs/droidspaces-gki.config" >> arch/arm64/configs/marble_defconfig
                 echo "==> DroidSpaces: config fragment appended to marble_defconfig."
               else
