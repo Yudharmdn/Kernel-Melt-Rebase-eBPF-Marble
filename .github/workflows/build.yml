@@ -23,6 +23,7 @@ on:
           - melt-Guxin12-A
           - Yudharn-melt-rebase
           - android12-5.10-lts
+          - yudharn
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz)"
