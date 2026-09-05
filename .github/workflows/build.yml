@@ -11,6 +11,7 @@ on:
         options:
           - https://github.com/yudharn/Pzqqt-Melt-Rebase
           - https://github.com/Yudharmdn/Guxin12-Melt-Rebase
+          - https://github.com/yudharn/Kernel-Source
 
       kernel_branch:
         description: "Branch on kernel_source above"
@@ -21,6 +22,7 @@ on:
           - melt-rebase
           - melt-Guxin12-A
           - Yudharn-melt-rebase
+          - android12-5.10-lts
 
       clang_url:
         description: "Clang/LLVM toolchain download URL (.tar.xz)"
